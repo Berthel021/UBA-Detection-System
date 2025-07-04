@@ -1,0 +1,32 @@
+def handle_impossible_travel(alert):
+    # Extract UBA alert data
+    user = alert["user"]
+    hostname = alert["source_host"]
+    risk_score = alert["risk_score"]
+    
+    # Step 1: Isolate host
+    if not isolate_host(hostname):
+        return {"success": False, "error": "Host isolation failed"}
+    
+    # Step 2: Capture memory
+    dump_id = capture_memory(hostname)
+    
+    # Step 3: Notify SOC
+    slack_message = f"""
+    :warning: *UBA Impossible Travel Alert* :warning:
+    - User: {user}
+    - Host: {hostname} 
+    - Risk Score: {risk_score}
+    - Actions Taken: Host isolated, memory dump (ID: {dump_id})
+    """
+    phantom.slack_post(channel="#soc-alerts", message=slack_message)
+    
+    # Step 4: Open investigation ticket
+    snow_ticket = {
+        "short_description": f"UBA Alert: Impossible travel by {user}",
+        "description": f"Host {hostname} isolated. Memory dump ID: {dump_id}",
+        "urgency": "1"  # Critical
+    }
+    snow_api.create_incident(snow_ticket)
+    
+    return {"success": True, "dump_id": dump_id}
