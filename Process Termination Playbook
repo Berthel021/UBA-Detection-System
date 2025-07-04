@@ -1,0 +1,22 @@
+def kill_process(hostname, process_name):
+    token = get_falcon_token()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    
+    # Query process ID
+    processes_url = f"{base_url}/processes/queries/processes/v1?filter=hostname:'{hostname}'+name:'{process_name}'"
+    process_id = requests.get(processes_url, headers=headers).json()["resources"][0]
+    
+    # Terminate process
+    action_url = f"{base_url}/processes/entities/processes/actions/v1?action_name=kill"
+    body = {"ids": [process_id]}
+    
+    response = requests.post(action_url, headers=headers, json=body)
+    if response.status_code == 202:
+        phantom.debug(f"Process {process_name} terminated")
+        return True
+    else:
+        phantom.error(f"Termination failed: {response.text}")
+        return False
