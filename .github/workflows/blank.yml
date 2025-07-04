@@ -21,36 +21,27 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         
-      - name: Validate YAML
-        uses: actions/check-yaml@v1
+      - name: Validate YAML Syntax
+        uses: redhat-actions/yaml-validator@v1
         with:
-          files: workflows/ubad-system/process_flow.yml
+          file: workflows/ubad-system/process_flow.yml
           
       - name: Load Process Flow
         id: load_flow
         run: |
           echo "Loading UBAD process flow..."
-          cat workflows/ubad-system/process_flow.yml
-          
-      - name: Notify SOC Team
-        if: always()
-        uses: actions/slack@v1
-        with:
-          payload: |
-            {
-              "text": "UBAD workflow executed: ${{ github.run_id }}",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*UBAD Process Flow Initiated*\nExecution ID: ${{ github.run_id }}"
-                  }
-                }
-              ]
-            }
+          yq eval workflows/ubad-system/process_flow.yml
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+          YQ_VERSION: 4.30.8
+          
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Install yq
+        run: |
+          sudo apt-get update && sudo apt-get install -y yq
 
   execute_playbooks:
     needs: process_ubad
@@ -59,8 +50,20 @@ jobs:
       matrix:
         playbook: ['isolate_host', 'kill_process', 'memory_dump']
     steps:
+      - uses: actions/checkout@v4
+      
       - name: Run ${{ matrix.playbook }} Playbook
         run: |
+          python3 -m pip install -r playbooks/requirements.txt
           python3 playbooks/${{ matrix.playbook }}.py \
             --env production \
             --log-level INFO
+            
+      - name: Notify SOC Team
+        uses: rtCamp/action-slack-notify@v2
+        if: always()
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_COLOR: ${{ job.status == 'success' && 'good' || 'danger' }}
+          SLACK_TITLE: "UBAD ${{ matrix.playbook }} Execution"
+          SLACK_MESSAGE: "Status: ${{ job.status }}\nRun: ${{ github.run_id }}"
