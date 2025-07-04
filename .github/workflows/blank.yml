@@ -9,6 +9,9 @@ on:
       - 'workflows/ubad-system/**'
       - 'playbooks/**'
 
+env:
+  SLACK_ENABLED: false  # Set to true when Slack is properly configured
+
 jobs:
   process_ubad:
     runs-on: ubuntu-latest
@@ -61,6 +64,8 @@ jobs:
     strategy:
       matrix:
         playbook: ['isolate_host', 'kill_process', 'memory_dump']
+      fail-fast: false  # Continue other playbooks if one fails
+
     steps:
       - uses: actions/checkout@v4
 
@@ -78,19 +83,26 @@ jobs:
             echo "No requirements.txt found - skipping dependency installation"
           fi
 
+      - name: Create dummy log file
+        run: |
+          mkdir -p playbooks/logs
+          echo "$(date) - Starting ${{ matrix.playbook }}" > playbooks/logs/${{ matrix.playbook }}.log
+
       - name: Run Playbook
         run: |
           if [ -f "playbooks/${{ matrix.playbook }}.py" ]; then
+            echo "Running ${{ matrix.playbook }} playbook..."
             python playbooks/${{ matrix.playbook }}.py \
               --env production \
-              --log-level INFO
+              --log-level INFO >> playbooks/logs/${{ matrix.playbook }}.log 2>&1
+            echo "Playbook execution completed"
           else
-            echo "Error: Playbook not found: ${{ matrix.playbook }}.py"
-            exit 0  # Continue workflow but mark as skipped
+            echo "Warning: Playbook not found: ${{ matrix.playbook }}.py"
+            echo "Skipping execution" >> playbooks/logs/${{ matrix.playbook }}.log
           fi
 
       - name: Slack Notification
-        if: always()
+        if: always() && env.SLACK_ENABLED == 'true'
         uses: slackapi/slack-github-action@v1.24.0
         with:
           channel-id: ${{ secrets.SLACK_CHANNEL }}
@@ -100,6 +112,7 @@ jobs:
             • Status: ${{ job.status }}
             • Run: ${{ github.run_id }}
             • Commit: ${{ github.sha }}
+            • Logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
 
@@ -108,15 +121,24 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     steps:
-      - name: Archive logs
+      - name: Find and archive logs
+        run: |
+          echo "Checking for log files..."
+          mkdir -p artifact_logs
+          find playbooks/logs -name "*.log" -exec cp {} artifact_logs/ \;
+          find workflows/ubad-system -name "*.yml" -exec cp {} artifact_logs/ \;
+          ls -la artifact_logs/
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
+        if: success() || failure()  # Always run
         with:
           name: ubad-logs-${{ github.run_id }}
-          path: |
-            playbooks/*.log
-            workflows/ubad-system/*.yml
+          path: artifact_logs/*
           retention-days: 7
+
       - name: Cleanup workspace
         run: |
           echo "Cleaning up workspace..."
-          rm -f playbooks/*.log
+          rm -rf playbooks/logs
+          rm -rf artifact_logs
