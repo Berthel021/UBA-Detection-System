@@ -1,0 +1,23 @@
+def capture_memory(hostname):
+    token = get_falcon_token()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    
+    # Get device ID
+    devices_url = f"{base_url}/devices/queries/devices/v1?filter=hostname:'{hostname}'"
+    device_id = requests.get(devices_url, headers=headers).json()["resources"][0]
+    
+    # Initiate memory dump
+    action_url = f"{base_url}/falconx/entities/memory-dump/v1"
+    body = {"device_id": device_id, "description": "UBA anomaly investigation"}
+    
+    response = requests.post(action_url, headers=headers, json=body)
+    if response.status_code == 202:
+        dump_id = response.json()["resources"][0]["id"]
+        phantom.debug(f"Memory dump initiated (ID: {dump_id})")
+        return dump_id
+    else:
+        phantom.error(f"Memory dump failed: {response.text}")
+        return None
