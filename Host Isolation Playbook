@@ -1,0 +1,22 @@
+def isolate_host(hostname):
+    token = get_falcon_token()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    
+    # Get device ID from hostname
+    devices_url = f"{base_url}/devices/queries/devices/v1?filter=hostname:'{hostname}'"
+    device_id = requests.get(devices_url, headers=headers).json()["resources"][0]
+    
+    # Isolate host
+    action_url = f"{base_url}/devices/entities/devices-actions/v2?action_name=contain"
+    body = {"ids": [device_id]}
+    
+    response = requests.post(action_url, headers=headers, json=body)
+    if response.status_code == 202:
+        phantom.debug(f"Host {hostname} isolated successfully")
+        return True
+    else:
+        phantom.error(f"Isolation failed: {response.text}")
+        return False
