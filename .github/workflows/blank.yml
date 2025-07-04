@@ -1,97 +1,66 @@
-name: User-Behavior Anomaly Detection System Process Flow
-description: End-to-end workflow for detecting and responding to user behavior anomalies
+name: User-Behavior Anomaly Detection System
+on:
+  workflow_dispatch:  # Allow manual triggering
+  schedule:
+    - cron: '0 18 * * 1-5'  # 6PM UTC weekdays (business hours review)
+  push:
+    branches: [ main ]
+    paths: 
+      - 'workflows/ubad-system/**'
+      - 'playbooks/**'
 
-stages:
-  - name: "Data Collection"
+jobs:
+  process_ubad:
+    runs-on: ubuntu-latest
+    environment: Production
+    permissions:
+      security-events: write
+      actions: read
+      
     steps:
-      - description: "Ingest logs from multiple sources"
-        tools:
-          - "Splunk Universal Forwarder"
-          - "HTTP Event Collector (HEC)"
-        sources:
-          - "Active Directory"
-          - "VPN/Proxy"
-          - "Endpoint Detection (EDR)"
-          - "Cloud Services (AWS, O365)"
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Validate YAML
+        uses: actions/check-yaml@v1
+        with:
+          files: workflows/ubad-system/process_flow.yml
+          
+      - name: Load Process Flow
+        id: load_flow
+        run: |
+          echo "Loading UBAD process flow..."
+          cat workflows/ubad-system/process_flow.yml
+          
+      - name: Notify SOC Team
+        if: always()
+        uses: actions/slack@v1
+        with:
+          payload: |
+            {
+              "text": "UBAD workflow executed: ${{ github.run_id }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*UBAD Process Flow Initiated*\nExecution ID: ${{ github.run_id }}"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
 
-  - name: "Behavior Analysis"
+  execute_playbooks:
+    needs: process_ubad
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        playbook: ['isolate_host', 'kill_process', 'memory_dump']
     steps:
-      - description: "Baseline normal user behavior"
-        component: "Splunk UBA"
-        ml_models:
-          - "Impossible Travel"
-          - "Data Exfiltration"
-          - "Privilege Escalation"
-
-      - description: "Detect anomalies"
-        thresholds:
-          risk_score: ">70 (Medium)"
-          risk_score: ">80 (High)"
-
-  - name: "Correlation & Enrichment"
-    steps:
-      - description: "Correlate with security events"
-        component: "Splunk ES"
-        example_query: >
-          `uba_risk_events` risk_score>80 
-          | join user [search `wineventlog_security` EventCode=4625]
-
-      - description: "Enrich with threat intelligence"
-        actions:
-          - "lookup threat_feeds.csv"
-          - "check MITRE ATT&CK TTPs"
-
-  - name: "Automated Response"
-    steps:
-      - description: "Execute SOAR playbooks"
-        triggers:
-          - condition: "risk_score > 80 AND anomaly_type='Impossible Travel'"
-            actions:
-              - "CrowdStrike: isolate_host"
-              - "Active Directory: disable_user"
-              - "ServiceNow: create_incident"
-
-          - condition: "suspicious_data_access AND department='Finance'"
-            actions:
-              - "AWS: block_s3_uploads"
-              - "Slack: alert_soc_channel"
-
-  - name: "Forensic Investigation"
-    steps:
-      - description: "Capture evidence"
-        tools:
-          - "CrowdStrike: memory_dump"
-          - "Tanium: process_tree"
-      - description: "Document timeline"
-        outputs:
-          - "Splunk: notable_events"
-          - "ELK: forensic_artifacts"
-
-  - name: "Reporting"
-    steps:
-      - description: "Generate executive reports"
-        metrics:
-          - "time_to_detect"
-          - "false_positive_rate"
-          - "containment_success"
-        outputs:
-          - "PowerBI: security_dashboard"
-          - "Splunk: compliance_reports"
-
-on_error:
-  - description: "Error Handling"
-    actions:
-      - "retry: 3x with exponential backoff"
-      - "notify: soc_on_call_email"
-      - "log: soar_audit.log"
-
-dependencies:
-  required_services:
-    - "Splunk Enterprise"
-    - "Splunk UBA"
-    - "CrowdStrike Falcon"
-    - "ServiceNow"
-  api_requirements:
-    - "crowdstrike: hosts:write"
-    - "splunk: admin_all_objects"
-    - "aws: s3:PutBucketPolicy"
+      - name: Run ${{ matrix.playbook }} Playbook
+        run: |
+          python3 playbooks/${{ matrix.playbook }}.py \
+            --env production \
+            --log-level INFO
