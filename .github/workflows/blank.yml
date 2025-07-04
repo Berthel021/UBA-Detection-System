@@ -1,36 +1,97 @@
-# This is a basic workflow to help you get started with Actions
+name: User-Behavior Anomaly Detection System Process Flow
+description: End-to-end workflow for detecting and responding to user behavior anomalies
 
-name: CI
-
-# Controls when the workflow will run
-on:
-  # Triggers the workflow on push or pull request events but only for the "main" branch
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
-
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
-jobs:
-  # This workflow contains a single job called "build"
-  build:
-    # The type of runner that the job will run on
-    runs-on: ubuntu-latest
-
-    # Steps represent a sequence of tasks that will be executed as part of the job
+stages:
+  - name: Data Collection
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v4
+      - description: Ingest logs from multiple sources
+        tools:
+          - Splunk Universal Forwarder
+          - HTTP Event Collector (HEC)
+        sources:
+          - Active Directory
+          - VPN/Proxy
+          - Endpoint Detection (EDR)
+          - Cloud Services (AWS, O365)
 
-      # Runs a single command using the runners shell
-      - name: Run a one-line script
-        run: echo Hello, world!
+  - name: Behavior Analysis
+    steps:
+      - description: Baseline normal user behavior
+        component: Splunk UBA
+        ml_models:
+          - Impossible Travel
+          - Data Exfiltration
+          - Privilege Escalation
 
-      # Runs a set of commands using the runners shell
-      - name: Run a multi-line script
-        run: |
-          echo Add other actions to build,
-          echo test, and deploy your project.
+      - description: Detect anomalies
+        thresholds:
+          risk_score: >70 (Medium)
+          risk_score: >80 (High)
+
+  - name: Correlation & Enrichment
+    steps:
+      - description: Correlate with security events
+        component: Splunk ES
+        example_query: |
+          `uba_risk_events` risk_score>80 
+          | join user [search `wineventlog_security` EventCode=4625]
+
+      - description: Enrich with threat intelligence
+        actions:
+          - lookup threat_feeds.csv
+          - check MITRE ATT&CK TTPs
+
+  - name: Automated Response
+    steps:
+      - description: Execute SOAR playbooks
+        triggers:
+          - condition: risk_score > 80 AND anomaly_type="Impossible Travel"
+            actions:
+              - CrowdStrike: isolate_host
+              - Active Directory: disable_user
+              - ServiceNow: create_incident
+
+          - condition: suspicious_data_access AND department="Finance"
+            actions:
+              - AWS: block_s3_uploads
+              - Slack: alert_soc_channel
+
+  - name: Forensic Investigation
+    steps:
+      - description: Capture evidence
+        tools:
+          - CrowdStrike: memory_dump
+          - Tanium: process_tree
+      - description: Document timeline
+        outputs:
+          - Splunk: notable_events
+          - ELK: forensic_artifacts
+
+  - name: Reporting
+    steps:
+      - description: Generate executive reports
+        metrics:
+          - time_to_detect
+          - false_positive_rate
+          - containment_success
+        outputs:
+          - PowerBI: security_dashboard
+          - Splunk: compliance_reports
+
+on_error:
+  - description: Error Handling
+    actions:
+      - retry: 3x with exponential backoff
+      - notify: soc_on_call_email
+      - log: soar_audit.log
+
+dependencies:
+  required_services:
+    - Splunk Enterprise
+    - Splunk UBA
+    - CrowdStrike Falcon
+    - ServiceNow
+  api_requirements:
+    - crowdstrike: hosts:write
+    - splunk: admin_all_objects
+    - aws: s3:PutBucketPolicy
