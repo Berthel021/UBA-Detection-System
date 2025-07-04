@@ -22,26 +22,22 @@ jobs:
         uses: actions/checkout@v4
         
       - name: Validate YAML Syntax
-        uses: redhat-actions/yaml-validator@v1
-        with:
-          file: workflows/ubad-system/process_flow.yml
+        run: |
+          echo "Validating YAML files..."
+          find workflows/ubad-system -name "*.yml" -exec yamllint {} \;
+        env:
+          YAMLLINT_CONFIG_FILE: .yamllint.yml
           
+      - name: Install yamllint
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y yamllint
+
       - name: Load Process Flow
         id: load_flow
         run: |
           echo "Loading UBAD process flow..."
-          yq eval workflows/ubad-system/process_flow.yml
-        env:
-          YQ_VERSION: 4.30.8
-          
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-          
-      - name: Install yq
-        run: |
-          sudo apt-get update && sudo apt-get install -y yq
+          cat workflows/ubad-system/process_flow.yml
 
   execute_playbooks:
     needs: process_ubad
@@ -52,18 +48,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r playbooks/requirements.txt
+          
       - name: Run ${{ matrix.playbook }} Playbook
         run: |
-          python3 -m pip install -r playbooks/requirements.txt
-          python3 playbooks/${{ matrix.playbook }}.py \
+          python playbooks/${{ matrix.playbook }}.py \
             --env production \
             --log-level INFO
             
       - name: Notify SOC Team
-        uses: rtCamp/action-slack-notify@v2
+        uses: slackapi/slack-github-action@v1.24.0
         if: always()
+        with:
+          channel-id: 'SOC_ALERTS'
+          slack-message: |
+            *UBAD Playbook Execution Result*
+            Playbook: ${{ matrix.playbook }}
+            Status: ${{ job.status }}
+            Run ID: ${{ github.run_id }}
         env:
-          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_COLOR: ${{ job.status == 'success' && 'good' || 'danger' }}
-          SLACK_TITLE: "UBAD ${{ matrix.playbook }} Execution"
-          SLACK_MESSAGE: "Status: ${{ job.status }}\nRun: ${{ github.run_id }}"
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+
+  post_execution:
+    needs: execute_playbooks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Archive logs
+        uses: actions/upload-artifact@v3
+        with:
+          name: ubad-logs
+          path: |
+            playbooks/*.log
+            workflows/ubad-system/*.yml
