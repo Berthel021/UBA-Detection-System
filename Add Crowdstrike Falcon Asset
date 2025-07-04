@@ -1,0 +1,4 @@
+# API Configuration
+base_url = "https://api.crowdstrike.com"
+client_id = "YOUR_CLIENT_ID"  # From CrowdStrike API Mgmt
+client_secret = "YOUR_SECRET" 
