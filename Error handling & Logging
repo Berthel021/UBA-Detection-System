@@ -1,0 +1,21 @@
+def safe_execute(action, **kwargs):
+    try:
+        result = action(**kwargs)
+        phantom.audit_log(
+            action=action.__name__,
+            status="success",
+            target=kwargs.get("hostname", "unknown")
+        )
+        return result
+    except Exception as e:
+        phantom.error(f"{action.__name__} failed: {str(e)}")
+        phantom.audit_log(
+            action=action.__name__,
+            status="failed",
+            target=kwargs.get("hostname", "unknown"),
+            error=str(e)
+        )
+        return None
+
+# Usage
+safe_execute(isolate_host, hostname="workstation-123")
